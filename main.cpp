@@ -92,7 +92,7 @@ void process_xtc(char * xtcFName, GroData const & groData, const std::array<floa
 
 int main(int argc, char ** argv){
  
-  // TODO input and outpu files should be provided as arguments
+  // TODO input and outpu files should be provided as arguments -- add option flags -- test on other platform?
   //char outBsFlName [] = "/usr/not-backed-up/Datasets/MDS/VTK/test.vtk."; 
   char outBsFlName [100] { "/Users/fouzhanhosseini/Documents/BioVis/Data/VTK/test.vtk."}; 
   //char xtcFlName [] = "/usr/not-backed-up/Datasets/MDS/md.Fouzhan.xtc";
@@ -101,12 +101,10 @@ int main(int argc, char ** argv){
   char groFlName [100]= "/Users/fouzhanhosseini/Documents/BioVis/Data/starting_frame.Fouzhan.gro";
 
   if (argc > 1){
-    std::strcpy (groFlName, argv[1]); 
-    std::strcpy (xtcFlName, argv[2]); 
-    std::strcpy (outBsFlName, argv[3]); 
+    std::strcpy (outBsFlName, argv[1]);
+    std::strcpy (groFlName, argv[2]); 
+    std::strcpy (xtcFlName, argv[3]);
   }
-
-std::cout << "start " << xtcFlName << " " << groFlName << "\n"; 
 
   // Read number of atoms from the file and initialize the necessary data structures 
   int status; 
@@ -117,9 +115,12 @@ std::cout << "start " << xtcFlName << " " << groFlName << "\n";
  
   readGroFile(groFlName, groData, ps.get());
 
-  auto range = analyseAtomsPos(ps.get(), atomNr);
+  // TODO assumption made in this function are not true, 
+  //    first the range can change slightly frame by frame  
+  //    box value gives the simulation range, i.e. includeing both protein and lipids; the other question is when do we need this funciton?
+  auto range = analyseAtomsPos(ps.get(), atomNr); 
 
   auto filteredTypes = filterComplexs(groData);
   
-//  process_xtc(xtcFlName, groData, range, std::move(ps), *filteredTypes, outBsFlName);   
+ // process_xtc(xtcFlName, groData, range, std::move(ps), *filteredTypes, outBsFlName);   
 }
