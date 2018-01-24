@@ -2,6 +2,7 @@
 #include <xdrfile/xdrfile_xtc.h>
 
 #include <iostream>
+#include <istream>
 #include <fstream>
 #include <sstream>
 #include <cstdio>
@@ -13,9 +14,10 @@
 #include <memory>
 
 #include <cstring>
+#include <string>
 #include <cmath>
 
-#define MAX_GRO_LINE_LENGTH 200 
+#define MAX_GRO_LINE_LENGTH 69 // %5d%-5s%5s%5d%8.3f%8.3f%8.3f%8.4f%8.4f%8.4f 
 #define GRO_NAME_SIZE       5  
 
 
@@ -30,8 +32,8 @@ struct Atom {
 // the index to the first atom in list of atoms and 
 // number of atoms composing the complex
 struct Complex { 
-  Complex(int num, std::string const & name, int a_idx)
-     : rNum(num), atom_idx(a_idx), rName(name) {
+  Complex(int num, std::string const & name, int a_idx, int aNr)
+     : rNum(num), atom_idx(a_idx), rName(name), atom_no(aNr) {
      }
   int rNum;           // residue number 
   std::string rName;  // residue name 
@@ -40,9 +42,16 @@ struct Complex {
 }; 
 
 
+struct Protein{
+  int fstAtomIdx; 
+  int lstAtomIdx; 
+  int fstMolIdx; 
+  int lstMolIdx; 
+};
+
 // This struct represetn an complex type, e.g. POPC
 struct ComplexType{
-  ComplexType(std::string n) : name(n){}; 
+  ComplexType(std::string n, int aNr, std::vector<std::string> & as) : name(n), nrAtoms(aNr), atoms(as){}; 
   std::string name;                  // Complex type name
   unsigned short nrAtoms;            // Number of atoms
   std::vector<std::string> atoms;    // list of atoms 
@@ -54,8 +63,18 @@ struct GroData {
   GroData(int n): atoms(n){}
   std::vector<ComplexType> ctypes; // list of Complex types 	
   std::vector <Atom> atoms;        // array of Atoms 
-  std::vector <Complex> cs;        // array of Complexes 
+  std::vector <Complex> lipids;        // array of Complexes
+  std::vector <Protein> ps; 
+  std::vector <Complex> aminoAcids; 
+
   // std::map<std::string, std::vector<std::string>> a2ctype;  TODO do we need this?
+  bool hasLipidType(std::string name){
+    for (auto it = ctypes.crbegin(); it < ctypes.crend(); it++){
+      if ((*it).name == name)
+       return true; 
+    }
+    return false; 
+  }
 };
 
 struct FilteredTypes{
@@ -76,7 +95,7 @@ std::ostream & operator<<(std::ostream & os, ComplexType const & c){
 }
 
 
-void readGroFile(const char * fn, GroData & groData, rvec * ps){
+void readGroFile(const char * fn, GroData & groData, rvec * ps, std::vector<std::pair<int, int>> pns){
   char line [MAX_GRO_LINE_LENGTH];
   char * token;
 
@@ -93,66 +112,89 @@ void readGroFile(const char * fn, GroData & groData, rvec * ps){
 
   // Iterate over all lines in the file (one atom per line)
   // and read atoms information 
-  std::string cTypeNamePrev;
-  std::string cTypeName;
-  int cNuPrev=-1, cNu = 0;
-  bool newType = false; 
-  char cNum [GRO_NAME_SIZE+1]; 
-  cNum [GRO_NAME_SIZE]= 0x00;
-  int a_cntr = 0;
-  std::vector<std::string> asList; 
-  for (int i = 0; i < nr ; i++){
-    gf.getline(line,MAX_GRO_LINE_LENGTH);
-    // Read the new complex and check whether it is a new complex 
-    std::copy(line, line+GRO_NAME_SIZE, cNum); // copy residue number to tmp container 
-    cNu = std::atoi (cNum);
-    token = std::strtok(line+GRO_NAME_SIZE, " ");
-    cTypeName.assign(token);
+  std::string item;  
+  std::string cName, cNamePrev, aName;
+  int cNuPrev=-1, cNu = 0, aNu;
 
-    if (cNuPrev == cNu && cTypeName.compare(cTypeNamePrev) == 0) 
-       a_cntr++;                                              // not a new complex or complex type 
-    else{ 
-      if (newType){                                           // Set nrAtoms and atoms list for the last recorded complex type 
-            groData.ctypes.back().atoms = std::move(asList);
-	    groData.ctypes.back().nrAtoms = a_cntr;
-	    newType = false;
-       }	    
-       if (cTypeName.compare(cTypeNamePrev) != 0){            // This is a new complex type 
-	  groData.ctypes.push_back(ComplexType(cTypeName));
-          newType = true;
-       }
-
-       if (groData.cs.size() > 0) groData.cs.back().atom_no = a_cntr;   // set atom_no of the last complex 
-       groData.cs.push_back(Complex(cNu, cTypeName, i));                // store this new complex 
-       // reset the values for the next round 
-       asList.clear(); 
-       a_cntr = 1;                             
-       cNuPrev = cNu; 
-       cTypeNamePrev.assign(cTypeName);  
-    }
-
-    // record the read atom information
-    token = strtok(NULL, " ");
-    asList.push_back(std::string(token));
-    std::strcpy(groData.atoms[i].name, token);    // as[i].aName = strtok(NULL, " ");
-    groData.atoms[i].num = std::atoi(strtok(NULL, " "));
-
+  int aCntr = 0;
+  char * lptr; 
+  int tmp; 
+  bool nc = true, nct = true;
+  std::vector<std::string> as; 
+  for (int i = 0; i < nr; i++){
+    // Read the new line/atom 
+    gf.read(line,MAX_GRO_LINE_LENGTH);
+    lptr = line; 
+    // Extract residue number       
+    item.assign(lptr, 5);  
+    lptr += 5; 
+    cNu = std::stoi(item);
+    // Extract residue name
+    tmp = 5;  
+    while (lptr[tmp] == ' ') tmp--; 
+    cName.assign(lptr, tmp+1);
+    lptr += 5;
+    // Extract atom name 
+    for (tmp = 5 ; *lptr == ' '; tmp--) lptr++;
+    aName.assign(lptr, tmp);
+    lptr += 5; 
+    // Extract atom Number 
+    item.assign(lptr, 5);
+    lptr += 5;
+    aNu = std::stoi(item);
     // record the atom position
-    ps[i][0] =  std::atof(strtok(NULL, " "));
-    ps[i][1] =  std::atof(strtok(NULL, " "));
-    ps[i][2] =  std::atof(strtok(NULL, " "));
-  }
+    item.assign(lptr, 8);
+    lptr+=8;
+    ps[i][0] = std::stof(item);
+    item.assign(lptr, 8);
+    lptr+=8;
+    ps[i][1] = std::stof(item);
+    item.assign(lptr, 8);
+    ps[i][2] = std::stof(item);
 
-  if (groData.cs.size() > 0) groData.cs.back().atom_no = a_cntr;  // set atom_no of the last complex 
-  if (newType){                                                   // Set nrAtoms and atoms list for the last recorded complex type 
-     groData.ctypes.back().atoms = std::move(asList);
-     groData.ctypes.back().nrAtoms = a_cntr;
-     newType = false;
-  }	    
+    // save atom info in the atom table
+    std::strcpy(groData.atoms[i].name, aName.c_str()); 
+    groData.atoms[i].num = aNu;
+
+   //TODO is it part of a Protein
+    
+    
+   nc = (cNuPrev == cNu) ? false: true;    // Is it a new complex?  
+   if (nc){
+     // if it is a new complex,
+     //  1. save prev complex info
+     groData.lipids.push_back(Complex(cNuPrev, cNamePrev, i - aCntr, aCntr));        
+     //  2. if the prev complex was a new type, save the type 
+     if (nct) {
+        groData.ctypes.push_back(ComplexType(cNamePrev, aCntr, as));
+        as.clear();
+     }
+     //  3. check whether the new complex has a new type
+     aCntr = 1;
+     cNuPrev = cNu; 
+     cNamePrev = cName; 
+     nct = groData.hasLipidType(cName) ? false: true;  // Is it a new complex type? 
+   } 
+     aCntr++;
+     // if this atom belongs to a new complex type, save the atom name
+     if (nct) as.push_back(aName);
+    
+   
+    
+
+   //TODO save protein related info
+
+  }
+  
+  groData.lipids.push_back(Complex(cNuPrev, cNamePrev, nr - aCntr, aCntr));  // save the last complex TODO if not protein 
+  if (nct)
+     groData.ctypes.push_back(ComplexType(cNamePrev, aCntr, as)); // save the last complex type TODO if not protein 
+  
   // TODO read the box dimension if needed 
 
   gf.close();
 }
+
 
 void calHist(float min, float max, float * p, int n){
   float binSize = 0.5; 
@@ -262,9 +304,9 @@ void testGroReader(GroData const & data, rvec const * ps){
   for (auto & c: data.ctypes)
     std::cout << c.name << " " << c.nrAtoms << " " << c.atoms[0]  << " " << c.atoms[c.nrAtoms - 1]  << std::endl;
  
-  std::cout << "Total number of lipids: " << data.cs.size() <<  std::endl;
+  std::cout << "Total number of lipids: " << data.lipids.size() <<  std::endl;
   for (int i = 450; i < 460; i++)
-    std::cout << data.cs[i].rName << " " << data.cs[i].rNum << " " << data.cs[i].atom_idx << " " << data.cs[i].atom_no << std::endl;
+    std::cout << data.lipids[i].rName << " " << data.lipids[i].rNum << " " << data.lipids[i].atom_idx << " " << data.lipids[i].atom_no << std::endl;
   
   std::cout << "Total number of atoms: " << data.atoms.size() << std::endl;
   for (int i = 4640; i < 4651; i++)

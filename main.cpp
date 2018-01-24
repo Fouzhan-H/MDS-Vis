@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include <fstream>
+#include <limits>
 #include <cstdio>
 #include <cstdlib>
 #include <cstdint>
@@ -12,7 +13,7 @@
 #include <cstring>
 
 #include "MakeGrid.cpp"
-#include "parseGroFile.cpp"
+#include "ParseGroFile.cpp"
 
 // FilteredTypes => std::vector<Comp2Atom>
 std::unique_ptr<std::vector<Comp2Atom>> listComp2Atoms (std::vector<FilteredTypes> const & ftypes, std::vector<Complex> const & clxs){
@@ -46,11 +47,11 @@ void process_xtc(char * xtcFName, GroData const & groData, const std::array<floa
   int step; 
 
   // TODO Allow Filtering based on complex or atom 
-  int fltClNr = groData.cs.size(); 
+  int fltClNr = groData.lipids.size(); 
   
   std::unique_ptr<std::vector<Comp2Atom>>  c2aFiltrd;
 
-  c2aFiltrd = listComp2Atoms(ftypes, groData.cs);
+  c2aFiltrd = listComp2Atoms(ftypes, groData.lipids);
 
 /*  std::unique_ptr<std::vector<Comp2Atom>>  c2aFiltrd (new std::vector<Comp2Atom>(fltClNr));
   std::transform( std::begin(groData.cs), std::end(groData.cs), std::begin(*c2aFiltrd)
@@ -112,8 +113,22 @@ int main(int argc, char ** argv){
   status = read_xtc_natoms(xtcFlName, &atomNr);
   GroData groData(atomNr); 
   std::unique_ptr<rvec []> ps (new rvec[atomNr]);
+
+  // Inquire about number of proteins included in the file and their first & last atom number
+  int np, fa, la;
+  std::cout << "Please Enter Number of Proteins" << std::endl; 
+  std::cin >> np; 
+  std::vector<std::pair<int, int>> pns; 
+  for (int i = 0; i < np; i++){
+    std::cout << "Please Enter first and last atom number" << std::endl;
+    std::cin >> fa >> la ;    
+    pns.push_back(std::pair<int, int>(fa, la));
+  }
+  std::cin.ignore(std::numeric_limits<std::streamsize>::max(),'\n');	
  
-  readGroFile(groFlName, groData, ps.get());
+
+
+  readGroFile(groFlName, groData, ps.get(), pns);
 
   // TODO assumption made in this function are not true, 
   //    first the range can change slightly frame by frame  
