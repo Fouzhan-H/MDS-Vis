@@ -127,15 +127,16 @@ int main(int argc, char ** argv){
   std::cin.ignore(std::numeric_limits<std::streamsize>::max(),'\n');	
  
 
-
-  readGroFile(groFlName, groData, ps.get(), pns);
+  ReadGro rGro;
+  rGro.readGroFile(groFlName, groData, ps.get(), pns);
 
   // TODO assumption made in this function are not true, 
   //    first the range can change slightly frame by frame  
   //    box value gives the simulation range, i.e. includeing both protein and lipids; the other question is when do we need this funciton?
   auto range = analyseAtomsPos(ps.get(), atomNr); 
 
-  auto filteredTypes = filterComplexs(groData);
+  testGroReader(groData, ps.get());
+ // auto filteredTypes = filterComplexs(groData);
   
  // process_xtc(xtcFlName, groData, range, std::move(ps), *filteredTypes, outBsFlName);   
 }
