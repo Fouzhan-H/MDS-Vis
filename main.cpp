@@ -107,12 +107,6 @@ int main(int argc, char ** argv){
     std::strcpy (xtcFlName, argv[3]);
   }
 
-  // Read number of atoms from the file and initialize the necessary data structures 
-  int status; 
-  int atomNr;  
-  status = read_xtc_natoms(xtcFlName, &atomNr);
-  GroData groData(atomNr); 
-  std::unique_ptr<rvec []> ps (new rvec[atomNr]);
 
   // Inquire about number of proteins included in the file and their first & last atom number
   int np, fa, la;
@@ -127,16 +121,22 @@ int main(int argc, char ** argv){
   std::cin.ignore(std::numeric_limits<std::streamsize>::max(),'\n');	
  
 
+  // Read number of atoms from the file and initialize the necessary data structures 
+  int status; 
+  int atomNr;  
+  status = read_xtc_natoms(xtcFlName, &atomNr);
+  GroData groData(atomNr); 
+  std::unique_ptr<rvec []> ps (new rvec[atomNr]);
   ReadGro rGro;
   rGro.readGroFile(groFlName, groData, ps.get(), pns);
 
   // TODO assumption made in this function are not true, 
   //    first the range can change slightly frame by frame  
   //    box value gives the simulation range, i.e. includeing both protein and lipids; the other question is when do we need this funciton?
-  auto range = analyseAtomsPos(ps.get(), atomNr); 
+  // auto range = analyseAtomsPos(ps.get(), atomNr); 
 
-  testGroReader(groData, ps.get());
- // auto filteredTypes = filterComplexs(groData);
+  //testGroReader(groData, ps.get());
+  auto filteredTypes = filterComplexs(groData);
   
- // process_xtc(xtcFlName, groData, range, std::move(ps), *filteredTypes, outBsFlName);   
+  process_xtc(xtcFlName, groData, groData.box, std::move(ps), *filteredTypes, outBsFlName);   
 }

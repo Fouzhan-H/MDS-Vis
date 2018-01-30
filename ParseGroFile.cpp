@@ -22,10 +22,10 @@
 #define GRO_NAME_SIZE       5  
 
 
-// Represent one atom as according to Gro file 
+// Represent one atom according to Gro file 
 struct Atom {
   char name [GRO_NAME_SIZE];  // atom name 
-  int num;        // atom number
+  int num;                    // atom number
 };
 
 // Represent one Complex according to Gro format, 
@@ -42,7 +42,10 @@ struct Complex {
   int atom_no;        // Number of atoms composing the complex 
 }; 
 
-
+// Represents one protein. 
+// Links with atoms and amino-acids tables by keeping 
+// the index of first and last atoms and amino-acids 
+// as presented in Gro file 
 struct Protein{
   Protein(int fai, int lai, int fmi, int lmi)
     : fstAtomIdx(fai), lstAtomIdx(lai), fstMolIdx(fmi), lstMolIdx(lmi){};
@@ -52,7 +55,8 @@ struct Protein{
   int lstMolIdx; 
 };
 
-// This struct represetn an complex type, e.g. POPC
+// This struct represetn an complex type, 
+// e.g. POPC or any amino acid types  
 struct ComplexType{
   ComplexType(std::string n, int aNr, std::vector<std::string> & as) : name(n), nrAtoms(aNr), atoms(as){}; 
   std::string name;                  // Complex type name
@@ -62,16 +66,29 @@ struct ComplexType{
   friend std::ostream & operator<<(std::ostream & os, ComplexType const & ctype);
 };
 
+// Overloading "<<" operator for "ComplexType"
+std::ostream & operator<<(std::ostream & os, ComplexType const & c){
+  int cntr_a = 1; 
+  os << c.name << " consists of : " << c.nrAtoms << "\n atoms:";
+  for (auto & a:c.atoms){
+    os << " " << cntr_a << "."<< a;
+    cntr_a++;
+  }
+  os << "\n"; // TODO do I need a new line or flush?
+  return os;
+}
+
+// Keeps information from Gro file 
 struct GroData {
   GroData(int n): atoms(n){}
-  std::vector<ComplexType> ctypes; // list of Complex types 	
-  std::vector<ComplexType> aatypes; // list of Complex types 	
-  std::vector <Atom> atoms;        // array of Atoms 
-  std::vector <Complex> lipids;        // array of Complexes
-  std::vector <Protein> ps; 
-  std::vector <Complex> aminoAcids; 
-
-  // std::map<std::string, std::vector<std::string>> a2ctype;  TODO do we need this?
+  std::vector<ComplexType> ctypes;    // list of Complex types 	
+  std::vector<ComplexType> aatypes;   // list of amino acid types 	
+  std::vector <Atom> atoms;           // array of Atoms 
+  std::vector <Complex> lipids;       // array of Complexes (not including amino acidss)
+  std::vector <Protein> ps;           // array of proteins 
+  std::vector <Complex> aminoAcids;   // array of amino acids  
+  std::array <float, 6> box;
+  // Checks whether the Complex type is already included
   bool hasLipidType(std::string name){
     for (auto it = ctypes.crbegin(); it < ctypes.crend(); it++){
       if ((*it).name == name)
@@ -79,7 +96,8 @@ struct GroData {
     }
     return false; 
   }
-
+  
+  // Checks whether the amino acid type is already included
   bool hasAminoAcid(std::string name){
     for (auto & c : aatypes){
       if (c.name == name)
@@ -95,19 +113,11 @@ struct FilteredTypes{
   std::vector<int> atoms;
 };
 
-std::ostream & operator<<(std::ostream & os, ComplexType const & c){
-  int cntr_a = 1; 
-  os << c.name << " consists of : " << c.nrAtoms << "\n atoms:";
-  for (auto & a:c.atoms){
-    os << " " << cntr_a << "."<< a;
-    cntr_a++;
-  }
-  os << "\n"; // TODO do I need a new line or flush?
-  return os;
-}
 
 class ReadGro {
 private:
+  // represent one line of data in Gro file
+  // excluding position and velocity in 3D space
   struct GroLine {
     int cNu;
     int aNu;
@@ -115,6 +125,9 @@ private:
     std::string aName; 
   };
 
+  // Reads one line of Gro file, and 
+  // updates the input argument with read data;  
+  // the atom position is set directly inside the function.
   void readLine(GroLine & gl){
     char line [MAX_GRO_LINE_LENGTH];
     char * lptr; 
@@ -153,18 +166,22 @@ private:
     lIdx ++;
   }
   
-  std::ifstream gf; 
-  int lIdx = 0; 
-  rvec * pos; 
-  void readComplex(GroData & groData, int nr);
-  void readProtein(GroData & groData, int nr);
+  std::ifstream gf;  // file object representing the Gro file
+  int lIdx = 0;      // Index of the next atom which will be read from the Gro file
+  rvec * pos;        // Pointer to the table which keeps the position of atoms in 3D space 
+  void readComplex(GroData & groData, int nr);     // Reads given number of atoms from the Gro file, assumes these atoms do not belong to a protein. 
+  void readProtein(GroData & groData, int nr);    // Reads one protein from the gro file; the protein consists of given number of atoms
 public:
   ReadGro(): lIdx(0){}
+  // Reads all atoms from the Gro file, extracts complex and amino acid types and stores all atoms, molecules, and protins
   void readGroFile(const char * fn, GroData & groData, rvec * ps, std::vector<std::pair<int, int>> pns);
 };
 
 
-
+// Reads all atoms from the Gro file, 
+// extracts complex and amino acid types 
+// and stores all atoms, molecules, and protins
+// the first and last atom idex for each protein is given
 void ReadGro::readGroFile(const char * fn, GroData & groData, rvec * ps, std::vector<std::pair<int, int>> pns){
   pos = ps; 
   char line [MAX_GRO_LINE_LENGTH];
@@ -172,7 +189,7 @@ void ReadGro::readGroFile(const char * fn, GroData & groData, rvec * ps, std::ve
 
   gf.open(fn, std::fstream::in);
 
-  // Read the first lin,title string, ignore it for now 
+  // Read the first line,title string, ignore it for now 
   gf.ignore(50, '\n');     
 
   // Read number of atoms 
@@ -182,39 +199,45 @@ void ReadGro::readGroFile(const char * fn, GroData & groData, rvec * ps, std::ve
 
   int pidx = 0, tmp; 
   bool checkProtein = pns.size() > 0 ? true :false; 
-  while (lIdx < nr){
-    // if it belongs to a Protein call readProtein 
-    if (checkProtein){
+  while (lIdx < nr){    // Iterate unitill all atoms are read
+    if (checkProtein){  // There are some proteins to be read from the gro file 
       tmp = std::get<0>(pns[pidx]);
-      if (lIdx + 1 == tmp){
+      if (lIdx + 1 == tmp){          // if the next atom belongs to a protein, call readProtein 
         tmp = std::get<1>(pns[pidx]) - tmp + 1; 
-        readProtein(groData, tmp);   // Read protein for the next tmp lines 
-        pidx++; 
+        readProtein(groData, tmp);   // Read protein for the next 'tmp' lines 
+        pidx++;  
         checkProtein = pns.size() > pidx ? true: false;        
       } else{
-         //TODO wrong logic 
-         tmp = tmp - 1 -  lIdx;
-         readComplex(groData, tmp);  //Read lipids for tmp lines 
+         tmp = tmp - 1 -  lIdx;      // calculate the number of atoms before the next protein
+         readComplex(groData, tmp);  //Read lipids for 'tmp' lines 
       }
     }else {
-      tmp  = nr - lIdx; 
-      readComplex(groData, tmp);  //Read lipids for tmp lines 
+      tmp  = nr - lIdx;           // There is no more protein in the file, so read all remaining atoms 
+      readComplex(groData, tmp);  //Read lipids for 'tmp' lines 
     } 
   }
+  // read box
+  gf.getline(line, MAX_GRO_LINE_LENGTH); 
+  token = strtok(line, " ");
+  groData.box[0] = 0; groData.box[1] =  std::atof(token); 
+  token = strtok(NULL, " ");
+  groData.box[2] = 0; groData.box[3] =  std::atof(token); 
+  token = strtok(NULL, " ");
+  groData.box[4] = 0; groData.box[5] =  std::atof(token); 
+
   gf.close();
 }
 
 
-
+// Reads given number of atoms from the Gro file, 
+// assumes these atoms do not belong to a protein. 
 void ReadGro::readComplex(GroData & groData, int nr){
 
-  // Iterate over all lines in the file (one atom per line)
-  // and read atoms information 
   GroLine ndata;
 
   std::vector<std::string> as; 
-  //Save ldata info
   int end = lIdx + nr;
+  //Read next atom, save info, and initialize varibale for the iteration
   readLine(ndata); 
   std::strcpy(groData.atoms[lIdx -1 ].name, ndata.aName.c_str()); 
   groData.atoms[lIdx - 1].num = ndata.aNu;
@@ -224,6 +247,8 @@ void ReadGro::readComplex(GroData & groData, int nr){
   std::string cNamePrev = ndata.cName; 
   bool nct = groData.hasLipidType(ndata.cName) ? false: true;  // Is it a new complex type? ;
   if (nct) as.push_back(ndata.aName);
+  // Iterate over next 'nr - 1' lines in the file (one atom per line)
+  // and read atoms information 
   for (int i = lIdx ; i < end; i++){
     // Read the new line/atom 
     readLine(ndata); 
@@ -241,10 +266,11 @@ void ReadGro::readComplex(GroData & groData, int nr){
         groData.ctypes.push_back(ComplexType(cNamePrev, aCntr, as));
         as.clear();
       }
-      //  3. check whether the new complex has a new type
+      //  3. reset variables 
       aCntr = 0;
       cNuPrev = ndata.cNu; 
-      cNamePrev = ndata.cName; 
+      cNamePrev = ndata.cName;
+      //  4. check whether the new complex has a new type 
       nct = groData.hasLipidType(ndata.cName) ? false: true;  // Is it a new complex type? 
     } 
     aCntr++;
@@ -258,14 +284,15 @@ void ReadGro::readComplex(GroData & groData, int nr){
 
 }
 
-
+// Reads one protein from the gro file; 
+// the protein consists of given number of atoms
 void ReadGro::readProtein(GroData & groData, int nr){
 
   int fstAtomIdx = lIdx; 
   int fstMolIdx = groData.aminoAcids.size(); 
   std::vector<std::string> as; 
-  //Save ldata info
   int end = lIdx + nr;
+  //Read next atom, save info, and initialize varibale for the iteration
   GroLine ndata;
   readLine(ndata); 
   std::strcpy(groData.atoms[lIdx -1 ].name, ndata.aName.c_str()); 
@@ -276,7 +303,7 @@ void ReadGro::readProtein(GroData & groData, int nr){
   std::string cNamePrev = ndata.cName; 
   bool nct = groData.hasAminoAcid(ndata.cName) ? false: true;  // Is it a new complex type? ;
   if (nct) as.push_back(ndata.aName);
-  // Iterate over all lines in the file (one atom per line)
+  // Iterate over next 'nr - 1' lines in the file (one atom per line)
   // and read atoms information 
   for (int i = lIdx ; i < end; i++){
     // Read the new line/atom 
@@ -295,10 +322,11 @@ void ReadGro::readProtein(GroData & groData, int nr){
         groData.aatypes.push_back(ComplexType(cNamePrev, aCntr, as));
         as.clear();
       }
-      //  3. check whether the new complex has a new type
+      //  3. reset variables 
       aCntr = 0;
       cNuPrev = ndata.cNu; 
       cNamePrev = ndata.cName; 
+      //  4. check whether the new complex has a new type
       nct = groData.hasAminoAcid(ndata.cName) ? false: true;  // Is it a new complex type? 
     } 
     aCntr++;
@@ -310,7 +338,7 @@ void ReadGro::readProtein(GroData & groData, int nr){
   if (nct)
      groData.aatypes.push_back(ComplexType(cNamePrev, aCntr, as)); // save the last complex type 
   
-  
+  // save the protein
   groData.ps.push_back(Protein(fstAtomIdx
                               , lIdx - 1 
                               , fstMolIdx
@@ -366,8 +394,6 @@ std::array<float, 6> analyseAtomsPos(rvec const * ps, int const nrPoints){
   // divide the atoms based on z coordinate
   return range; 
 }
-
-
 
 void filterAtoms(ComplexType const & ctype, FilteredTypes & ftype){
   std::string usr_in = "";
@@ -427,7 +453,10 @@ void testGroReader(GroData const & data, rvec const * ps){
             << "\nNumber of amino acids:  " << data.aminoAcids.size()  
             << "\nNumber of Proteins:  " << data.ps.size() 
             << "\nTypes of amino acids: "<< data.aatypes.size() 
-            << "\nTypes of non amino acid molecules " << data.ctypes.size() << "\n" ;
+            << "\nTypes of non amino acid molecules " << data.ctypes.size() 
+	    << "\nSimulation box, x:[" << data.box[0] << ", " << data.box[1] 
+	                    << "] y:[" << data.box[2] << ", " << data.box[3]
+			    << "] z:[" << data.box[4] << ", " << data.box[5] << "\n" ;
   
   std::cout << "Proteins: " <<  std::endl;
   for (auto & p : data.ps)
@@ -453,5 +482,4 @@ void testGroReader(GroData const & data, rvec const * ps){
   for (int i = 4640; i < 4651; i++)
     std::cout <<  data.atoms[i].name  << " " << data.atoms[i].num << " " 
               << ps [i][0] << " " << ps[i][1] << " " << ps[i][2] << std::endl;
-
 }
