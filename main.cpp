@@ -13,7 +13,74 @@
 #include <cstring>
 
 #include "MakeGrid.cpp"
+#include "VecField.cpp"
 #include "ParseGroFile.cpp"
+
+std::unique_ptr<std::vector<unsigned int>> listAtoms (std::vector<FilteredTypes> const & ftypes, std::vector<Complex> const & clxs){
+  std::unique_ptr<std::vector<unsigned int>> atoms (new std::vector<unsigned int>());
+  
+  for (auto & c: clxs){
+    for (auto &  t: ftypes){ 
+      if (c.rName.compare(t.name) == 0){ // Filter complexes which has to be included in the analysis, and copy them to fClxs              
+         for (auto & a: t.atoms) 
+           atoms->push_back(a+c.atom_idx);
+         break; 
+      } 
+    } // loop on filtered types (ftypes)
+  } // loop on complexes (clxs)   
+  return atoms; 
+}
+
+void processXTC(char * xtcFName, GroData const & groData, const std::array<float, 6> & range, std::unique_ptr<rvec[]> ps_prev, std::vector<FilteredTypes> const & ftypes, char * outBsFlName){
+  char outFlName [80];
+  int status; 
+  int atomNr;  
+  
+  matrix box; 
+  float prec;
+  float time;  
+  int step; 
+
+  // TODO Allow Filtering based on complex or atom 
+  int fltClNr = groData.lipids.size(); 
+  
+  std::unique_ptr<std::vector<unsigned int>>  fAtoms;
+
+  fAtoms = listAtoms(ftypes, groData.lipids);
+
+std::cout << "atom size" <<  fAtoms->size() << "\n";
+
+
+  // open the trajectory file 
+  XDRFILE * xtcFPtr = xdrfile_open(xtcFName, "r");
+  if (xtcFPtr == NULL) std::cout << "Failed to Open the input file: " <<  xtcFName << std::endl; 
+
+
+  fCoord cellSize {.5, .5, .5};  
+  iCoord cellNo;
+  cellNo[0] = (int) ((range[1] - range[0]) / .5) + 1;  
+  cellNo[1] = (int) ((range[3] - range[2]) / .5) + 1;  
+  cellNo[2] = (int) ((range[5] - range[4]) / .5) + 1;  
+  VecField vf (cellSize, cellNo, {range[0], range[2], range[4]});
+  
+  std::unique_ptr<rvec []>  ps (new rvec[groData.atoms.size()]); 
+  // iteratively read the file and generate the grid 
+  status = read_xtc(xtcFPtr, atomNr, &step, &time, box, ps.get(), &prec);
+  for (int i = 0; i < 1000 && status == exdrOK; i++){
+     std::cout << "----- iteration " <<  i << " " << time << " " << box[0][0] << " " << box[1][1] << " " << box[2][2] << " " << box[0][1] << " " << box[0][2] << "-----------" << std::endl;
+     // TODO process this frame
+     vf.getNextFrame(reinterpret_cast<fCoord const *>(ps_prev.get())
+                   , reinterpret_cast<fCoord const *>(ps.get())
+                   , *fAtoms);
+
+     sprintf(outFlName, "%s%d.vtk", outBsFlName,  i);
+     vf.writeFrame(outFlName);
+     // TODO write to output file sprintf(ofname, "%s%d", ofname_base,  i); writeCVS(ofname, atomNr, as);
+     ps.swap(ps_prev); 
+     status = read_xtc(xtcFPtr, atomNr, &step, &time, box, ps.get(), &prec);
+  }
+
+}
 
 // FilteredTypes => std::vector<Comp2Atom>
 std::unique_ptr<std::vector<Comp2Atom>> listComp2Atoms (std::vector<FilteredTypes> const & ftypes, std::vector<Complex> const & clxs){
@@ -82,7 +149,7 @@ void process_xtc(char * xtcFName, GroData const & groData, const std::array<floa
      // TODO process this frame
      mkGd.getNextFrame(reinterpret_cast<fCoord const *>(ps.get()));
 // mkGd.print();
-     sprintf(outFlName, "%s%d", outBsFlName,  i);
+     sprintf(outFlName, "%s%d.vtk", outBsFlName,  i);
      mkGd.writeFrame(outFlName);
      // TODO write to output file sprintf(ofname, "%s%d", ofname_base,  i); writeCVS(ofname, atomNr, as);
      status = read_xtc(xtcFPtr, atomNr, &step, &time, box, ps.get(), &prec);
@@ -138,5 +205,6 @@ int main(int argc, char ** argv){
   //testGroReader(groData, ps.get());
   auto filteredTypes = filterComplexs(groData);
   
-  process_xtc(xtcFlName, groData, groData.box, std::move(ps), *filteredTypes, outBsFlName);   
+//TODO  process_xtc(xtcFlName, groData, groData.box, std::move(ps), *filteredTypes, outBsFlName);   
+  processXTC(xtcFlName, groData, groData.box, std::move(ps), *filteredTypes, outBsFlName);   
 }
