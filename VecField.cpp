@@ -60,9 +60,24 @@ class VecField{
       std::vector<fCoord> cellVF;  
       unsigned int getCellIdx(fCoord p);  
 
+      void mapAtom2Cell(fCoord const & x_ti, fCoord const & x_tii){
+        unsigned int cidx;
+        // find the atom cell index
+        cidx = getCellIdx(x_ti); 
+        // update the cell velocity at ti and tii  
+        auto & cvec = a2cMapping[cidx];   
+        for (int i = 0; i < DIM; i++){
+          cvec.v1[i] += x_ti[i];
+          cvec.v2[i] += x_tii[i]; 
+        }
+        cvec.Nu++;
+      }
+
     public:
       VecField(fCoord cellSize, iCoord cellNu, fCoord st); 
-      void getNextFrame(fCoord const * ps_ti, fCoord const * ps_tii, std::vector<unsigned int> const & atoms); 
+      void getNextFrame(fCoord const * ps_ti, fCoord const * ps_tii,
+                        std::vector<std::array<unsigned int, 2>> const & proteins,
+                        std::vector<unsigned int> const & atoms); 
       void writeFrame(const char * fn);
 //      void print();
 };
@@ -70,6 +85,7 @@ class VecField{
 VecField::VecField(fCoord cellSize, iCoord cellNu, fCoord st) 
   : cell_sz(cellSize), cell_nu(cellNu), grid_st(st){
   a2cMapping.clear();
+  std::cout  << "DIMENSIONS " << cell_nu[0] +1<< " " << cell_nu[1] +1<< " " << cell_nu[2] +1 << std::endl;
 }
 
 
@@ -77,8 +93,8 @@ unsigned int VecField::getCellIdx(fCoord p){
 
   iCoord cidx;
   for (int i = 0; i < DIM; i++){
-    cidx[i] =  ((p[i] - grid_st[i]) / cell_sz[i]) ;
-    cidx[i] = (cidx[i] >= cell_nu[i]) ? cell_nu[i] - 1: cidx[i];
+    cidx[i] = (int) ((p[i] - grid_st[i]) / cell_sz[i]) % cell_nu[i];
+//    cidx[i] = (cidx[i] >= cell_nu[i]) ? cell_nu[i] - 1: cidx[i];
   }
 
   unsigned int cellIdx = cidx[0] + cidx[1]* cell_nu[0] + cidx[2]* cell_nu[0]*cell_nu[1];  //TODO it is a hack 
@@ -87,23 +103,27 @@ unsigned int VecField::getCellIdx(fCoord p){
 }  
 
 
-void VecField::getNextFrame(fCoord const * ps_ti, fCoord const * ps_tii, std::vector<unsigned int> const & atoms){
+void VecField::getNextFrame(fCoord const * ps_ti, fCoord const * ps_tii, 
+                            std::vector<std::array<unsigned int, 2>> const & proteins, 
+                            std::vector<unsigned int> const & atoms){
  
   a2cMapping.clear();
   cellVF.clear();
 
+  int k = 1 ; //13585;
+  std::cout << ps_ti[k][0] << " "  << ps_tii[k][0] << " " <<  ps_ti[k][1] << " " 
+            << ps_tii[k][1] << " " << ps_ti[k][2] << " " <<  ps_tii[k][2] << " " << getCellIdx(ps_ti[k]);
 
-  unsigned int cidx;
-  for (auto & a:atoms){
-    // find the atom cell index
-    cidx = getCellIdx(ps_ti[a]); 
-    // update the cell velocity at ti and tii  
-    auto & cvec = a2cMapping[cidx];   
-    for (int i = 0; i < DIM; i++){
-      cvec.v1[i] += ps_ti[a][i];
-      cvec.v2[i] += ps_tii[a][i]; 
+
+  for (auto & p:proteins){ // loop on each protein
+    for (int i = p[0]; i <= p[1]; i++){ // loop on each amino-acid atom
+      mapAtom2Cell(ps_ti[i], ps_tii[i]);
     }
-    cvec.Nu++;
+  }
+
+
+  for (auto & a:atoms){
+    mapAtom2Cell(ps_ti[a], ps_tii[a]);
   }
 
 
@@ -115,7 +135,6 @@ void VecField::getNextFrame(fCoord const * ps_ti, fCoord const * ps_tii, std::ve
 
     cellVF.push_back( (cvec.v2 - cvec.v1) * tmp );  // calculate mv, (v2 - v1)/Nu, per cell
   }
-
    
 } 
 

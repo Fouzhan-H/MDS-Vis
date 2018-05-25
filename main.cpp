@@ -13,6 +13,7 @@
 #include <cstring>
 
 #include "MakeGrid.cpp"
+#include "AtomTraj.cpp"
 #include "VecField.cpp"
 #include "ParseGroFile.cpp"
 
@@ -40,15 +41,18 @@ void processXTC(char * xtcFName, GroData const & groData, const std::array<float
   float prec;
   float time;  
   int step; 
+ 
+  // Extract atoms composing proteins
+  std::vector<std::array<unsigned int, 2>> pAtoms; 
+  for (auto & p: groData.ps){
+    pAtoms.push_back({p.fstAtomIdx, p.lstAtomIdx});
+  }
 
   // TODO Allow Filtering based on complex or atom 
   int fltClNr = groData.lipids.size(); 
-  
   std::unique_ptr<std::vector<unsigned int>>  fAtoms;
-
   fAtoms = listAtoms(ftypes, groData.lipids);
-
-std::cout << "atom size" <<  fAtoms->size() << "\n";
+  std::cout << "atom size" <<  fAtoms->size() << "\n";
 
 
   // open the trajectory file 
@@ -56,26 +60,27 @@ std::cout << "atom size" <<  fAtoms->size() << "\n";
   if (xtcFPtr == NULL) std::cout << "Failed to Open the input file: " <<  xtcFName << std::endl; 
 
 
-  fCoord cellSize {.5, .5, .5};  
+  fCoord cellSize {1.0, 1.0, 1.0};  
   iCoord cellNo;
-  cellNo[0] = (int) ((range[1] - range[0]) / .5) + 1;  
-  cellNo[1] = (int) ((range[3] - range[2]) / .5) + 1;  
-  cellNo[2] = (int) ((range[5] - range[4]) / .5) + 1;  
+  cellNo[0] = (int) ((range[1] - range[0]) / 1) + 1;  
+  cellNo[1] = (int) ((range[3] - range[2]) / 1) + 1;  
+  cellNo[2] = (int) ((range[5] - range[4]) / 1) + 1;  
   VecField vf (cellSize, cellNo, {range[0], range[2], range[4]});
   
   std::unique_ptr<rvec []>  ps (new rvec[groData.atoms.size()]); 
   // iteratively read the file and generate the grid 
   status = read_xtc(xtcFPtr, atomNr, &step, &time, box, ps.get(), &prec);
-  for (int i = 0; i < 1000 && status == exdrOK; i++){
-     std::cout << "----- iteration " <<  i << " " << time << " " << box[0][0] << " " << box[1][1] << " " << box[2][2] << " " << box[0][1] << " " << box[0][2] << "-----------" << std::endl;
-     // TODO process this frame
+  for (int i = 0; status == exdrOK; i++){
+     std::cout << "----- iteration " <<  i << " " << time << " " << box[0][0] << " " << box[0][1] << " " << box[0][2] 
+                                                          << " " << box[1][0] << " " << box[1][1] << " " << box[1][2]  
+                                                          << " " << box[2][0] << " " << box[2][1] << " " << box[2][2] << "-----------" << std::endl;
+     // process this frame
      vf.getNextFrame(reinterpret_cast<fCoord const *>(ps_prev.get())
                    , reinterpret_cast<fCoord const *>(ps.get())
-                   , *fAtoms);
+                   , pAtoms, *fAtoms);
 
      sprintf(outFlName, "%s%d.vtk", outBsFlName,  i);
      vf.writeFrame(outFlName);
-     // TODO write to output file sprintf(ofname, "%s%d", ofname_base,  i); writeCVS(ofname, atomNr, as);
      ps.swap(ps_prev); 
      status = read_xtc(xtcFPtr, atomNr, &step, &time, box, ps.get(), &prec);
   }
@@ -144,7 +149,7 @@ void process_xtc(char * xtcFName, GroData const & groData, const std::array<floa
 
   // iteratively read the file and generate the grid 
   status = read_xtc(xtcFPtr, atomNr, &step, &time, box, ps.get(), &prec);
-  for (int i = 0; i < 1000 && status == exdrOK; i++){
+  for (int i = 0; i < 3 && status == exdrOK; i++){
      std::cout << "----- iteration " <<  i << " " << time << " " << box[0][0] << " " << box[1][1] << " " << box[2][2] << " " << box[0][1] << " " << box[0][2] << "-----------" << std::endl;
      // TODO process this frame
      mkGd.getNextFrame(reinterpret_cast<fCoord const *>(ps.get()));
@@ -157,6 +162,38 @@ void process_xtc(char * xtcFName, GroData const & groData, const std::array<floa
 
 }
 
+
+void xtc2trajs(char * xtcFName, GroData const & groData, std::vector<FilteredTypes> const & ftypes, char * outFlName){
+  //Allow Filtering based on complex or atom 
+  std::unique_ptr<std::vector<unsigned int>>  fAtoms;
+  fAtoms = listAtoms(ftypes, groData.lipids);
+  std::cout << "Number of atoms: " <<  fAtoms->size() << "\n";
+  // extract atom trajectories 
+  matrix box; 
+  float prec;
+  float time;  
+  int step; 
+  int status; 
+  int atomNr;  
+  // open the trajectory file 
+  XDRFILE * xtcFPtr = xdrfile_open(xtcFName, "r");
+  if (xtcFPtr == NULL) std::cout << "Failed to Open the input file: " <<  xtcFName << std::endl; 
+  
+  AtomTraj trajReader ( 10/*TODO ?*/, fAtoms->size());  
+  std::unique_ptr<rvec []>  ps (new rvec[groData.atoms.size()]); 
+  // iteratively read the xtc file to extract trajectories  
+  status = read_xtc(xtcFPtr, atomNr, &step, &time, box, ps.get(), &prec);
+  for (int i = 0; i < 10 && status == exdrOK; i++){
+     std::cout << "----- iteration " <<  i << " " << time << " "
+                                     << box[0][0] << " " << box[1][1] << " " << box[2][2] << " "
+                                     << box[0][1] << " " << box[0][2] << "-----------" << std::endl;
+     // process this frame
+     trajReader.addFrame(reinterpret_cast<const float ** >(ps.get()), fAtoms.get(), static_cast<const float (&)[3][3]> (box));
+     status = read_xtc(xtcFPtr, atomNr, &step, &time, box, ps.get(), &prec);
+  }
+
+  trajReader.writeTrajs(outFlName); // dump out trajectories considering PBC 
+}
 
 int main(int argc, char ** argv){
  
@@ -206,5 +243,7 @@ int main(int argc, char ** argv){
   auto filteredTypes = filterComplexs(groData);
   
 //TODO  process_xtc(xtcFlName, groData, groData.box, std::move(ps), *filteredTypes, outBsFlName);   
-  processXTC(xtcFlName, groData, groData.box, std::move(ps), *filteredTypes, outBsFlName);   
+//  processXTC(xtcFlName, groData, groData.box, std::move(ps), *filteredTypes, outBsFlName);   
+
+  xtc2trajs(xtcFlName,groData, *filteredTypes, "traj.txt");
 }
