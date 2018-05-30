@@ -49,10 +49,10 @@ struct Complex {
 struct Protein{
   Protein(int fai, int lai, int fmi, int lmi)
     : fstAtomIdx(fai), lstAtomIdx(lai), fstMolIdx(fmi), lstMolIdx(lmi){};
-  int fstAtomIdx; 
-  int lstAtomIdx; 
-  int fstMolIdx; 
-  int lstMolIdx; 
+  unsigned int fstAtomIdx; 
+  unsigned int lstAtomIdx; 
+  unsigned int fstMolIdx; 
+  unsigned int lstMolIdx; 
 };
 
 // This struct represetn an complex type, 

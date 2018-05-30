@@ -179,16 +179,16 @@ void xtc2trajs(char * xtcFName, GroData const & groData, std::vector<FilteredTyp
   XDRFILE * xtcFPtr = xdrfile_open(xtcFName, "r");
   if (xtcFPtr == NULL) std::cout << "Failed to Open the input file: " <<  xtcFName << std::endl; 
   
-  AtomTraj trajReader ( 10/*TODO ?*/, fAtoms->size());  
+  AtomTraj trajReader ( 10/*TODO possible to calculate based on time and step?*/, fAtoms->size());  
   std::unique_ptr<rvec []>  ps (new rvec[groData.atoms.size()]); 
   // iteratively read the xtc file to extract trajectories  
   status = read_xtc(xtcFPtr, atomNr, &step, &time, box, ps.get(), &prec);
   for (int i = 0; i < 10 && status == exdrOK; i++){
      std::cout << "----- iteration " <<  i << " " << time << " "
                                      << box[0][0] << " " << box[1][1] << " " << box[2][2] << " "
-                                     << box[0][1] << " " << box[0][2] << "-----------" << std::endl;
+                                     << box[0][1] << " " << box[0][2] << " " << time << " " << step << "-----------" << std::endl;
      // process this frame
-     trajReader.addFrame(reinterpret_cast<const float ** >(ps.get()), fAtoms.get(), static_cast<const float (&)[3][3]> (box));
+     trajReader.addFrame(ps.get(), fAtoms.get(), static_cast<const float (&)[3][3]> (box));
      status = read_xtc(xtcFPtr, atomNr, &step, &time, box, ps.get(), &prec);
   }
 
@@ -245,5 +245,5 @@ int main(int argc, char ** argv){
 //TODO  process_xtc(xtcFlName, groData, groData.box, std::move(ps), *filteredTypes, outBsFlName);   
 //  processXTC(xtcFlName, groData, groData.box, std::move(ps), *filteredTypes, outBsFlName);   
 
-  xtc2trajs(xtcFlName,groData, *filteredTypes, "traj.txt");
+  xtc2trajs(xtcFlName,groData, *filteredTypes, outBsFlName);
 }

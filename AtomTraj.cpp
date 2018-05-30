@@ -2,7 +2,7 @@
 #include <algorithm>
 #include <sstream>
 #include <fstream>
-
+#include <iostream>
 
 class AtomTraj{
 private:
@@ -14,6 +14,7 @@ private:
   
     friend std::ostream & operator << (std::ostream & os, STPoint const & p){
       os << p.x << " " << p.y << " " << p.t << std::endl; 
+      return os;
     }
  
   };
@@ -23,7 +24,8 @@ private:
   unsigned int frameNu;
   unsigned int atomNu;
   unsigned int frameIdx;  
-  std::vector <std::vector <STPoint> > trajs; 
+  std::vector <std::vector <STPoint> > trajs;
+  std::vector <float> times;  
   std::vector <std::vector <int> > jumps; 
 public:
   AtomTraj(unsigned int fnu, unsigned int aNu)
@@ -55,16 +57,18 @@ public:
     return false; 
   }
 
-  void addFrame(const float * ps[3], std::vector <unsigned int> const * as , const float (&box) [3][3]){
+  void addFrame(const float (*ps)[3], std::vector <unsigned int> const * as , const float (&box) [3][3]){
+    int idx = 0;
     for (auto  a:*as){
       // extract position
-      trajs[a][frameIdx].x = ps[a][0]; 
-      trajs[a][frameIdx].y = ps[a][1]; 
-      trajs[a][frameIdx].z = ps[a][2]; 
-      if (isJump(frameIdx, a, box))
-        jumps[a].push_back(frameIdx);
+      trajs[idx][frameIdx].x = ps[a][0]; 
+      trajs[idx][frameIdx].y = ps[a][1]; 
+      trajs[idx][frameIdx].z = ps[a][2]; 
+      if (isJump(frameIdx, idx, box))
+        jumps[idx].push_back(frameIdx);
+      idx++;
     }
-    frameIdx++; 
+    frameIdx++;
   }
 
   void printSubTraj( unsigned int aIdx, unsigned int tIdx_start, unsigned int tIdx_end
@@ -99,7 +103,7 @@ public:
     // iterate over atoms and dump trajectories
     for (unsigned int i = 0; i < atomNu; i++){
       printAtomTraj(i, buffer);
-      trajFl << buffer; 
+      trajFl << buffer.str(); 
       buffer.str("");
     }
  
