@@ -17,14 +17,16 @@
 #include "VecField.cpp"
 #include "ParseGroFile.cpp"
 
-std::unique_ptr<std::vector<unsigned int>> listAtoms (std::vector<FilteredTypes> const & ftypes, std::vector<Complex> const & clxs){
+std::unique_ptr<std::vector<unsigned int>> listAtoms (std::vector<FilteredTypes> const & ftypes, std::vector<Complex> const & clxs, std::vector<std::string> & complexTypes){
   std::unique_ptr<std::vector<unsigned int>> atoms (new std::vector<unsigned int>());
   
   for (auto & c: clxs){
     for (auto &  t: ftypes){ 
       if (c.rName.compare(t.name) == 0){ // Filter complexes which has to be included in the analysis, and copy them to fClxs              
-         for (auto & a: t.atoms) 
+         for (auto & a: t.atoms){ 
            atoms->push_back(a+c.atom_idx);
+           complexTypes.push_back(c.rName);   
+         } 
          break; 
       } 
     } // loop on filtered types (ftypes)
@@ -51,7 +53,8 @@ void processXTC(char * xtcFName, GroData const & groData, const std::array<float
   // TODO Allow Filtering based on complex or atom 
   int fltClNr = groData.lipids.size(); 
   std::unique_ptr<std::vector<unsigned int>>  fAtoms;
-  fAtoms = listAtoms(ftypes, groData.lipids);
+  std::vector <std::string> types;
+  fAtoms = listAtoms(ftypes, groData.lipids, types);
   std::cout << "atom size" <<  fAtoms->size() << "\n";
 
 
@@ -166,7 +169,8 @@ void process_xtc(char * xtcFName, GroData const & groData, const std::array<floa
 void xtc2trajs(char * xtcFName, GroData const & groData, std::vector<FilteredTypes> const & ftypes, char * outFlName){
   //Allow Filtering based on complex or atom 
   std::unique_ptr<std::vector<unsigned int>>  fAtoms;
-  fAtoms = listAtoms(ftypes, groData.lipids);
+  std::vector <std::string> types;
+  fAtoms = listAtoms(ftypes, groData.lipids, types);
   std::cout << "Number of atoms: " <<  fAtoms->size() << "\n";
   // extract atom trajectories 
   matrix box; 
@@ -179,20 +183,21 @@ void xtc2trajs(char * xtcFName, GroData const & groData, std::vector<FilteredTyp
   XDRFILE * xtcFPtr = xdrfile_open(xtcFName, "r");
   if (xtcFPtr == NULL) std::cout << "Failed to Open the input file: " <<  xtcFName << std::endl; 
   
-  AtomTraj trajReader ( 10/*TODO possible to calculate based on time and step?*/, fAtoms->size());  
+  int frameNu = 6000; /*TODO it should either be provided as input or be removed */
+  AtomTraj trajReader ( frameNu, fAtoms->size(), groData.box);  
   std::unique_ptr<rvec []>  ps (new rvec[groData.atoms.size()]); 
   // iteratively read the xtc file to extract trajectories  
   status = read_xtc(xtcFPtr, atomNr, &step, &time, box, ps.get(), &prec);
-  for (int i = 0; i < 10 && status == exdrOK; i++){
+  for (int i = 0; i < frameNu && status == exdrOK; i++){
      std::cout << "----- iteration " <<  i << " " << time << " "
                                      << box[0][0] << " " << box[1][1] << " " << box[2][2] << " "
                                      << box[0][1] << " " << box[0][2] << " " << time << " " << step << "-----------" << std::endl;
      // process this frame
-     trajReader.addFrame(ps.get(), fAtoms.get(), static_cast<const float (&)[3][3]> (box));
+     trajReader.addFrame(ps.get(), fAtoms.get(), time, static_cast<const float (&)[3][3]> (box));
      status = read_xtc(xtcFPtr, atomNr, &step, &time, box, ps.get(), &prec);
   }
 
-  trajReader.writeTrajs(outFlName); // dump out trajectories considering PBC 
+  trajReader.writeTrajs(outFlName, types); // dump out trajectories considering PBC 
 }
 
 int main(int argc, char ** argv){

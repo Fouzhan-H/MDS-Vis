@@ -13,7 +13,8 @@ private:
     float t;
   
     friend std::ostream & operator << (std::ostream & os, STPoint const & p){
-      os << p.x << " " << p.y << " " << p.t << std::endl; 
+//      os << p.x << " " << p.y << " " << p.t << std::endl; 
+      os << p.x << " " << p.y ; 
       return os;
     }
  
@@ -25,13 +26,14 @@ private:
   unsigned int atomNu;
   unsigned int frameIdx;  
   std::vector <std::vector <STPoint> > trajs;
-  std::vector <float> times;  
   std::vector <std::vector <int> > jumps; 
+  std::vector <float> times;  
+  std::array <float, 6> box; 
 public:
-  AtomTraj(unsigned int fnu, unsigned int aNu)
+  AtomTraj(unsigned int fnu, unsigned int aNu, std::array<float, 6> const & b)
     : trajs(std::vector<std::vector <STPoint> >( aNu, std::vector<STPoint>(fnu))), frameNu(fnu), atomNu(aNu)
     , jumps (std::vector <std::vector <int>> (aNu) )
-    , frameIdx(0) {}
+    , box(b), frameIdx(0) {}
  
   bool isJump(unsigned int fIdx, unsigned int aIdx, const float (&box)[3][3]){
     if (fIdx == 0) return false;
@@ -57,8 +59,14 @@ public:
     return false; 
   }
 
-  void addFrame(const float (*ps)[3], std::vector <unsigned int> const * as , const float (&box) [3][3]){
+  void addFrame(const float (*ps)[3], std::vector <unsigned int> const * as , float time, const float (&box) [3][3]){
     int idx = 0;
+ 
+    this->box[1] = std::max(this->box[1],  box[0][0]);
+    this->box[3] = std::max(this->box[3],  box[1][1]);
+    this->box[5] = std::max(this->box[5],  box[2][2]);
+     
+
     for (auto  a:*as){
       // extract position
       trajs[idx][frameIdx].x = ps[a][0]; 
@@ -68,19 +76,24 @@ public:
         jumps[idx].push_back(frameIdx);
       idx++;
     }
+    times.push_back(time);
     frameIdx++;
   }
 
   void printSubTraj( unsigned int aIdx, unsigned int tIdx_start, unsigned int tIdx_end
-                , std::ostringstream & buf){
+                , std::ostringstream & buf, std::string const & ctype){
      for (unsigned i = tIdx_start; i < tIdx_end; i++){
        buf << trajs[aIdx][i];
-     }
-     buf << "0 0 0" << std::endl;  // end of a trajectory
+       buf << " " << times[i] << std::endl;
 
+       if (trajs[aIdx][i].x < box[0] || trajs[aIdx][i].x > box[1] ||
+           trajs[aIdx][i].y < box[2] || trajs[aIdx][i].y > box[3])  std::cout << trajs[aIdx][i] << "\n" ;
+
+     }
+     buf << "0 0 0 " << ctype << std::endl;  // end of a trajectory
   }
 
-  void printAtomTraj(int aIdx, std::ostringstream & buf){   
+  void printAtomTraj(int aIdx, std::ostringstream & buf, std::string const & ctype){   
     // Iterate over atom positions and add them to the 'trajectory' 
     // When the atom pass box boundries, create a new trajectory
     auto & ajs = jumps[aIdx];
@@ -89,20 +102,23 @@ public:
     for (unsigned short j = 0; j < ajs.size(); j++){ 
       // Each atom trajectory is dividend to a number of trajectories
       // each time the atom passes the box boundaries, a new trajectory starts 
-      printSubTraj(aIdx, tIdx, ajs[j], buf); 
+      printSubTraj(aIdx, tIdx, ajs[j], buf, ctype); 
       tIdx = ajs[j];  
     }
-    printSubTraj(aIdx, tIdx, frameNu, buf);
-
+    printSubTraj(aIdx, tIdx, frameIdx, buf, ctype);
   }
 
-  void writeTrajs(const char * fn){
+  void writeTrajs(const char * fn, std::vector<std::string> const & types){
     std::ofstream trajFl; 
-    trajFl.open (fn, std::ofstream::out);   
+    trajFl.open (fn, std::ofstream::out);  
+ 
+
+    trajFl << box[0] << " " << box[1] << " " << box[2] << " " << box[3] << " " << times.front() << " " << times.back() << std::endl;
+ 
     std::ostringstream buffer (std::ios_base::out); 
     // iterate over atoms and dump trajectories
     for (unsigned int i = 0; i < atomNu; i++){
-      printAtomTraj(i, buffer);
+      printAtomTraj(i, buffer, types[i]);
       trajFl << buffer.str(); 
       buffer.str("");
     }
