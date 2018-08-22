@@ -32,7 +32,7 @@ std::unique_ptr<std::vector<unsigned int>> listAtoms (FilteredTypes const & ftyp
 }
 
 void writeVTKFile(const char * fn, const int dim [3], const float origin [3], const float spacing[3], 
-                  std::vector<ProtDensityGrid> const & prots , std::vector<DensityGrid> const & lipids, std::vector<FilteredTypes> const & typs){
+                  std::vector<ProtDensityGrid> const & prots , std::vector<DensityGrid> const & lipids, std::vector<FilteredTypes> const & typs, std::vector<std::string> aAcidNames){
    
    std::ofstream vtkFl; 
    vtkFl.open(fn, std::ofstream::out);
@@ -52,15 +52,17 @@ void writeVTKFile(const char * fn, const int dim [3], const float origin [3], co
    vtkFl << "CELL_DATA " << nrCellData << std::endl;
    int countr = 1; 
    for (auto & p:prots){
-     vtkFl << "SCALARS prot"<< countr << " int 1" << std::endl;
-     vtkFl << "LOOKUP_TABLE default"<< std::endl;
+     for (unsigned char i = 0; i < aAcidNames.size(); i++){
+       vtkFl << "SCALARS prot"<< countr << "_" <<  aAcidNames[i] << " int 1" << std::endl;
+       vtkFl << "LOOKUP_TABLE default"<< std::endl;
+       p.writeAminoAcid(vtkFl, i); 
+     }
      countr++; 
-     vtkFl << p;
    } 
 
    countr = 0; 
    for (auto & l:lipids){
-     vtkFl << "SCALARS "<< typs[countr].name << " int 1" << std::endl;
+     vtkFl << "SCALARS "<< typs[countr].name << " float 1" << std::endl;
      vtkFl << "LOOKUP_TABLE default"<< std::endl;
      countr++; 
      vtkFl << l;
@@ -104,37 +106,52 @@ std::cout << "cellNU " << cellNu[0] << " " << cellNu[1] << " " << cellNu[2]  << 
   // For every protein create a density object
   std::vector<ProtDensityGrid> protDenMaps; 
   for (auto & p:groData.ps){
-    protDenMaps.push_back(ProtDensityGrid(cellNu, p.fstAtomIdx, p.lstAtomIdx ));   
+    protDenMaps.push_back(ProtDensityGrid(cellNu, p.fstAtomIdx, p.lstAtomIdx, p.aminoAcids));   
   } 
   
-std::cout << "HERE.  all created \n"; 
+std::cout << "HERE.  all created "<< groData.aatypes.size()<< " " << groData.ctypes.size() << "\n"; 
   // Iterate over simulation and calculate denisty
-  int frameNu = 6000; /*TODO it should either be provided as input or be removed */
-  // iteratively read the xtc file to extract trajectories  
-  for (int i = 0; status == exdrOK; i++){
+  int stFrame = 0; 
+  int endFrame = 4000; 
+
+  for (int i = 0; i <= stFrame && status == exdrOK; i++){
+    status = read_xtc(xtcFPtr, atomNr, &step, &time, box, ps.get(), &prec);
+  } 
+  // Calculate density of Proteins using the based frame 
+  for (auto & p:protDenMaps)
+    p.updDensity(ps.get(), rbox);
+
+  // iteratively read the xtc file to calculate Lipid densities 
+  int f = stFrame + 1; 
+  for(; f < endFrame && status == exdrOK; f++){
 //     std::cout << "----- iteration " <<  i << " "  
 //                                     << box[0][0] << " " << box[1][1] << " " << box[2][2] << " "
 //                                     << time << " " << step << "-----------" << std::endl;
      // process this frame
      for (auto & l:lipidDenMaps)
        l.updDensity(ps.get(), rbox); 
-     for (auto & p:protDenMaps)
-       p.updDensity(ps.get(), rbox);
 
      status = read_xtc(xtcFPtr, atomNr, &step, &time, box, ps.get(), &prec);
   }
+  xdrfile_close(xtcFPtr); // Close the input xtc file
 
-  xdrfile_close(xtcFPtr);
+  // Normalize the Lipids density figures
+  f = f - stFrame; // Number of read frames  
+  for (auto & l:lipidDenMaps)
+    l.normalize(f);
 
   // TODO how to output the file 
   float origin [3];
   rbox.getLowestPoint(origin);
 
-  writeVTKFile (vtkFName, cellNu, origin, cells, protDenMaps, lipidDenMaps, ftypes); 
+  std::vector<std::string> aaNames;
+  for (auto & a:groData.aatypes){
+    aaNames.push_back(a.name);
+  }
+
+  writeVTKFile (vtkFName, cellNu, origin, cells, protDenMaps, lipidDenMaps, ftypes, aaNames); 
 //std::cout << frameNu << " HERE. before returng callDen \n"; 
 }
-
-
 
 int main(int argc, char ** argv){
  
@@ -152,7 +169,6 @@ int main(int argc, char ** argv){
     std::strcpy (xtcFlName, argv[3]);
   }
 
-
   // Inquire about number of proteins included in the file and their first & last atom number
   int np, fa, la;
   std::cout << "Please Enter Number of Proteins" << std::endl; 
@@ -165,6 +181,7 @@ int main(int argc, char ** argv){
   }
   std::cin.ignore(std::numeric_limits<std::streamsize>::max(),'\n');	
  
+std::cout << "HERE... \n"; 
 
   // Read number of atoms from the file and initialize the necessary data structures 
   int status; 
@@ -179,5 +196,4 @@ int main(int argc, char ** argv){
   auto filteredTypes = filterComplexs(groData);
   
   calDensity(xtcFlName, outFlName, atomNr, *filteredTypes, groData);
-std::cout << "HERE... \n"; 
 }

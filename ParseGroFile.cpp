@@ -53,6 +53,7 @@ struct Protein{
   unsigned int lstAtomIdx; 
   unsigned int fstMolIdx; 
   unsigned int lstMolIdx; 
+  std::array<std::vector<unsigned int>, 21> aminoAcids; 
 };
 
 // This struct represetn an complex type, 
@@ -83,10 +84,10 @@ struct GroData {
   GroData(int n): atoms(n){}
   std::vector<ComplexType> ctypes;    // list of Complex types 	
   std::vector<ComplexType> aatypes;   // list of amino acid types 	
-  std::vector <Atom> atoms;           // array of Atoms 
-  std::vector <Complex> lipids;       // array of Complexes (not including amino acidss)
-  std::vector <Protein> ps;           // array of proteins 
-  std::vector <Complex> aminoAcids;   // array of amino acids  
+  std::vector<Atom> atoms;            // array of Atoms 
+  std::vector<Complex> lipids;        // array of Complexes (not including amino acidss)
+  std::vector<Protein> ps;            // array of proteins 
+  std::vector<std::pair<Complex, unsigned char>> aminoAcids;   // array of amino acids  
   std::array <float, 6> box;
   // Checks whether the Complex type is already included
   bool hasLipidType(std::string name){
@@ -98,12 +99,12 @@ struct GroData {
   }
   
   // Checks whether the amino acid type is already included
-  bool hasAminoAcid(std::string name){
-    for (auto & c : aatypes){
-      if (c.name == name)
-       return true;
+  std::pair<bool, char> hasAminoAcid(std::string name){
+    for (char i =0; i < aatypes.size(); i++){
+      if (aatypes[i].name == name)
+       return std::make_pair(true, i);
     }
-    return false;
+    return std::make_pair(false, aatypes.size()+1);
   }
 };
 
@@ -301,7 +302,8 @@ void ReadGro::readProtein(GroData & groData, int nr){
   int aCntr = 1;
   int cNuPrev = ndata.cNu;
   std::string cNamePrev = ndata.cName; 
-  bool nct = groData.hasAminoAcid(ndata.cName) ? false: true;  // Is it a new complex type? ;
+  auto aminoAcidIdx = groData.hasAminoAcid(ndata.cName);
+  bool nct = std::get<0>(aminoAcidIdx) ? false: true;  // Is it a new complex type? ;
   if (nct) as.push_back(ndata.aName);
   // Iterate over next 'nr - 1' lines in the file (one atom per line)
   // and read atoms information 
@@ -316,7 +318,7 @@ void ReadGro::readProtein(GroData & groData, int nr){
     if (nc){
       // if it is a new complex,
       //  1. save prev complex info
-      groData.aminoAcids.push_back(Complex(cNuPrev, cNamePrev, i - aCntr, aCntr));        
+      groData.aminoAcids.push_back(std::make_pair(Complex(cNuPrev, cNamePrev, i - aCntr, aCntr), std::get<1>(aminoAcidIdx)));        
       //  2. if the prev complex was a new type, save the type 
       if (nct) {
         groData.aatypes.push_back(ComplexType(cNamePrev, aCntr, as));
@@ -327,14 +329,15 @@ void ReadGro::readProtein(GroData & groData, int nr){
       cNuPrev = ndata.cNu; 
       cNamePrev = ndata.cName; 
       //  4. check whether the new complex has a new type
-      nct = groData.hasAminoAcid(ndata.cName) ? false: true;  // Is it a new complex type? 
+      aminoAcidIdx = groData.hasAminoAcid(ndata.cName);  
+      nct = std::get<0>(aminoAcidIdx) ? false: true;  // Is it a new complex type? 
     } 
     aCntr++;
     // if this atom belongs to a new complex type, save the atom name
     if (nct) as.push_back(ndata.aName);
   }
   
-  groData.aminoAcids.push_back(Complex(cNuPrev, cNamePrev, end - aCntr, aCntr));  // save the last complex  
+  groData.aminoAcids.push_back(std::make_pair(Complex(cNuPrev, cNamePrev, end - aCntr, aCntr), std::get<1>(aminoAcidIdx)));  // save the last complex  
   if (nct)
      groData.aatypes.push_back(ComplexType(cNamePrev, aCntr, as)); // save the last complex type 
   
@@ -344,6 +347,14 @@ void ReadGro::readProtein(GroData & groData, int nr){
                               , fstMolIdx
                               , groData.aminoAcids.size() - 1)); 
 
+  auto & p = groData.ps.back();
+  char idx;  
+  for (unsigned int i = p.fstMolIdx; i <= p.lstMolIdx; i++){
+    Complex & c = std::get<0>(groData.aminoAcids[i]);
+    idx = std::get<1>(groData.aminoAcids[i]);  
+    for (unsigned int j = 0; j < c.atom_no; j++)
+      p.aminoAcids[idx].push_back(c.atom_idx + j);  
+  }
 }
 
 void calHist(float min, float max, float * p, int n){
@@ -471,9 +482,11 @@ void testGroReader(GroData const & data, rvec const * ps){
     std::cout << c.name << " " << c.nrAtoms << " " << c.atoms[0]  << " " << c.atoms[c.nrAtoms - 1]  << std::endl;
  
   std::cout << "amino acids 50 to 59" << std::endl;
-  for (int i = 50; i < 60; i++)
-    std::cout << data.aminoAcids[i].rName << " " << data.aminoAcids[i].rNum << " " << data.aminoAcids[i].atom_idx << " " << data.aminoAcids[i].atom_no << std::endl;
-  
+  for (int i = 50; i < 60; i++){
+    auto & a = std::get<0>(data.aminoAcids[i]); 
+    std::cout << a.rName << " " << a.rNum << " " << a.atom_idx << " " << a.atom_no << std::endl;
+  }
+
   std::cout << "Lipids 450 to 459" << std::endl;
   for (int i = 450; i < 460; i++)
     std::cout << data.lipids[i].rName << " " << data.lipids[i].rNum << " " << data.lipids[i].atom_idx << " " << data.lipids[i].atom_no << std::endl;

@@ -1,5 +1,6 @@
 #include <vector>
 #include <array>
+#include <map>
 #include <cmath>
 #include <sstream>
 #include <iostream>
@@ -83,13 +84,13 @@ public:
 
 class DensityGrid {
 private:
-  std::vector <std::vector<std::vector<int>>> densMap; // 3D array which records number of lipids in each cell over time
+  std::vector <std::vector<std::vector<float>>> densMap; // 3D array which records number of lipids in each cell over time
   std::unique_ptr <std::vector <unsigned int>> atoms; // List of atom ids   
   int dim [3];
 public:
   // Consturctor
   DensityGrid(int const size[3], std::vector<unsigned int>* as)
-    : densMap(size[2], std::vector<std::vector<int>>(size[1], std::vector<int>(size[0]))), atoms(as){
+    : densMap(size[2], std::vector<std::vector<float>>(size[1], std::vector<float>(size[0]))), atoms(as){
     for (auto i:{0,1,2}) dim[i] = size[i]; 
     std::cout << "Lipid density map created with " << atoms->size() << " atoms\n";
   } 
@@ -103,7 +104,14 @@ public:
       densMap[idx[2]][idx[1]][idx[0]] += 1;  
     }
   }
-  
+ 
+  void normalize(int div){
+    for (int i = 0; i < dim[2]; i++)
+      for (int j = 0; j < dim[1]; j++)
+        for (int k = 0; k < dim[0]; k++)
+          densMap[i][j][k] /= div; 
+  }
+ 
   friend std::ostream & operator<<(std::ostream & os, DensityGrid const & grid){
     std::ostringstream buff (std::ios_base::out); 
     for (int i = 0; i < grid.dim [2]; i++){
@@ -116,20 +124,22 @@ public:
     os << buff.str();
     return os;
   }  
-
 };
 
 
 class ProtDensityGrid {
 private:
   std::vector <std::vector<std::vector<int>>> densMap; // 3D array which records number of lipids in each cell over time
+  std::array < std::map< std::tuple<unsigned short, unsigned short, unsigned short >, unsigned int> , 21> densMaps;
   unsigned int fstAtomIdx;    
   unsigned int lstAtomIdx;    
+  std::array<std::vector<unsigned int>, 21> const & aminoAcids; 
   int dim [3];
+
 public:
   // Consturctor
-  ProtDensityGrid(int const size[3], unsigned int fIdx, unsigned int lIdx)
-    : densMap(size[2], std::vector<std::vector<int>>(size[1], std::vector<int>(size[0]))),fstAtomIdx(fIdx), lstAtomIdx(lIdx)  
+  ProtDensityGrid(int const size[3], unsigned int fIdx, unsigned int lIdx,  std::array<std::vector<unsigned int>, 21> const & aas)
+    : densMap(size[2], std::vector<std::vector<int>>(size[1], std::vector<int>(size[0]))),fstAtomIdx(fIdx), lstAtomIdx(lIdx),aminoAcids(aas)   
   {
      std::cout << "Protein density map created with " << (lstAtomIdx - fstAtomIdx + 1) << " atoms\n";
      for (auto i:{0,1,2}) dim[i] = size[i];
@@ -137,12 +147,35 @@ public:
   // Given a list of atom positions and RotBox 
   void updDensity(const float (*ps) [3], const RotBox & box){
     unsigned int idx[3];
-    for (unsigned int i = fstAtomIdx; i <= lstAtomIdx; i++){
-      //map ps[a] to grid cell and update the value 
-      box.cellIndex(ps[i], idx);
-      densMap[idx[2]][idx[1]][idx[0]] += 1;  
+    for (int i = 0; i < aminoAcids.size(); i++){
+      for (auto & c:aminoAcids[i]){
+        //map ps[a] to grid cell and update the value 
+        box.cellIndex(ps[c], idx);
+        densMaps[i][std::make_tuple(idx[2], idx[1], idx[0])] += 1; 
+//        densMap[idx[2]][idx[1]][idx[0]] += 1;  
+      }
     }
   }
+
+  
+  void writeAminoAcid(std::ostream & os, unsigned char aminoAcidIdx) const{
+    auto & aaMap = densMaps[aminoAcidIdx];
+    std::ostringstream buff;
+    for (int i = 0; i < dim [2]; i++){
+      for (int j = 0; j < dim[1]; j++){
+        for (int k = 0; k < dim[0]; k++){
+          auto s = aaMap.find(std::make_tuple(i, j, k));             
+          if (s != aaMap.end())
+            buff << s -> second << " ";
+          else   
+            buff << "0 "; 
+        }
+        buff << std::endl; 
+      } 
+    }    
+    os << buff.str();
+  } 
+
 
   friend std::ostream & operator<<(std::ostream & os, ProtDensityGrid const & grid){
     std::ostringstream buff (std::ios_base::out); 
