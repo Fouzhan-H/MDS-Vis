@@ -71,7 +71,7 @@ void writeVTKFile(const char * fn, const int dim [3], const float origin [3], co
    vtkFl.close();
 }
 
-void calDensity(char const * xtcFName, char const * vtkFName,int atomNr,  std::vector<FilteredTypes> const & ftypes, GroData const & groData ){
+void calDensity(char const * xtcFName, char const * vtkBsFName, int atomNr, unsigned int deltaFrame,  std::vector<FilteredTypes> const & ftypes, GroData const & groData ){
   matrix box; 
   float prec;
   float time;  
@@ -95,12 +95,22 @@ void calDensity(char const * xtcFName, char const * vtkFName,int atomNr,  std::v
   int cellNu [3]; 
   rbox.getCellNumbers(cellNu);
 std::cout << "cellNU " << cellNu[0] << " " << cellNu[1] << " " << cellNu[2]  << " " << atomNr <<" ..\n";
-  // For each in ftypes 1) extract atom indcies, and 2) create a density object
+  // For each t in ftypes 1) extract atom indcies, and 2) create a density object
   std::vector<DensityGrid> lipidDenMaps; 
   std::unique_ptr<std::vector<unsigned int>> atomIdxs; 
   for (auto & t:ftypes){
     atomIdxs = listAtoms(t, groData.lipids);
     lipidDenMaps.push_back(DensityGrid(cellNu, atomIdxs.release()));   
+  }
+  
+  // TODO how to output the file -- prepare data needed for output VTK files
+  char vtkFName [100]; 
+  float origin [3];
+  rbox.getLowestPoint(origin);
+
+  std::vector<std::string> aaNames;
+  for (auto & a:groData.aatypes){
+    aaNames.push_back(a.name);
   }
 
   // For every protein create a density object
@@ -110,46 +120,39 @@ std::cout << "cellNU " << cellNu[0] << " " << cellNu[1] << " " << cellNu[2]  << 
   } 
   
 std::cout << "HERE.  all created "<< groData.aatypes.size()<< " " << groData.ctypes.size() << "\n"; 
-  // Iterate over simulation and calculate denisty
-  int stFrame = 0; 
-  int endFrame = 4000; 
 
-  for (int i = 0; i <= stFrame && status == exdrOK; i++){
-    status = read_xtc(xtcFPtr, atomNr, &step, &time, box, ps.get(), &prec);
-  } 
   // Calculate density of Proteins using the based frame 
+  status = read_xtc(xtcFPtr, atomNr, &step, &time, box, ps.get(), &prec);
   for (auto & p:protDenMaps)
     p.updDensity(ps.get(), rbox);
 
-  // iteratively read the xtc file to calculate Lipid densities 
-  int f = stFrame + 1; 
-  for(; f < endFrame && status == exdrOK; f++){
+  // Iterate over simulation and calculate Lipid denisties in deltaFrames 
+  for (int i, dt = 0; status == exdrOK; dt++){
+    for (i = 1; i < deltaFrame && status == exdrOK; i++){
 //     std::cout << "----- iteration " <<  i << " "  
 //                                     << box[0][0] << " " << box[1][1] << " " << box[2][2] << " "
 //                                     << time << " " << step << "-----------" << std::endl;
-     // process this frame
-     for (auto & l:lipidDenMaps)
-       l.updDensity(ps.get(), rbox); 
+      // process this frame
+      for (auto & l:lipidDenMaps)
+        l.updDensity(ps.get(), rbox); 
 
-     status = read_xtc(xtcFPtr, atomNr, &step, &time, box, ps.get(), &prec);
+      status = read_xtc(xtcFPtr, atomNr, &step, &time, box, ps.get(), &prec);    
+    }
+
+    // Normalize the Lipids density figures
+    for (auto & l:lipidDenMaps)
+//      l.normalize( dt * deltaFrame + i );
+      l.normalize( i );
+
+    sprintf(vtkFName,"%s%d.vtk", vtkBsFName, dt );
+    writeVTKFile (vtkFName, cellNu, origin, cells, protDenMaps, lipidDenMaps, ftypes, aaNames); 
+
+    for (auto & l:lipidDenMaps) l.reset();
+
   }
   xdrfile_close(xtcFPtr); // Close the input xtc file
 
-  // Normalize the Lipids density figures
-  f = f - stFrame; // Number of read frames  
-  for (auto & l:lipidDenMaps)
-    l.normalize(f);
 
-  // TODO how to output the file 
-  float origin [3];
-  rbox.getLowestPoint(origin);
-
-  std::vector<std::string> aaNames;
-  for (auto & a:groData.aatypes){
-    aaNames.push_back(a.name);
-  }
-
-  writeVTKFile (vtkFName, cellNu, origin, cells, protDenMaps, lipidDenMaps, ftypes, aaNames); 
 //std::cout << frameNu << " HERE. before returng callDen \n"; 
 }
 
@@ -181,7 +184,6 @@ int main(int argc, char ** argv){
   }
   std::cin.ignore(std::numeric_limits<std::streamsize>::max(),'\n');	
  
-std::cout << "HERE... \n"; 
 
   // Read number of atoms from the file and initialize the necessary data structures 
   int status; 
@@ -195,5 +197,5 @@ std::cout << "HERE... \n";
   
   auto filteredTypes = filterComplexs(groData);
   
-  calDensity(xtcFlName, outFlName, atomNr, *filteredTypes, groData);
+  calDensity(xtcFlName, outFlName, atomNr, std::stoi(argv[4]), *filteredTypes, groData);
 }

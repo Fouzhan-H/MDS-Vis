@@ -19,6 +19,7 @@
 #include <cmath>
 
 #define MAX_GRO_LINE_LENGTH 69 // %5d%-5s%5s%5d%8.3f%8.3f%8.3f%8.4f%8.4f%8.4f 
+//#define MAX_GRO_LINE_LENGTH 45 // %5d%-5s%5s%5d%8.3f%8.3f%8.3f% 
 #define GRO_NAME_SIZE       5  
 
 
@@ -140,6 +141,7 @@ private:
     // Extract residue number       
     item.assign(lptr, 5);  
     lptr += 5; 
+
     gl.cNu = std::stoi(item);
     // Extract residue name
     tmp = 4;  
@@ -191,7 +193,7 @@ void ReadGro::readGroFile(const char * fn, GroData & groData, rvec * ps, std::ve
   gf.open(fn, std::fstream::in);
 
   // Read the first line,title string, ignore it for now 
-  gf.ignore(50, '\n');     
+  gf.ignore(200, '\n');     
 
   // Read number of atoms 
   gf.getline(line, MAX_GRO_LINE_LENGTH); 
@@ -240,6 +242,7 @@ void ReadGro::readComplex(GroData & groData, int nr){
   int end = lIdx + nr;
   //Read next atom, save info, and initialize varibale for the iteration
   readLine(ndata); 
+
   std::strcpy(groData.atoms[lIdx -1 ].name, ndata.aName.c_str()); 
   groData.atoms[lIdx - 1].num = ndata.aNu;
   bool nc;

@@ -6,7 +6,6 @@
 #include <iostream>
 #include <memory>
 
-// Represents density of one type of lipids or Proteins 
 class RotBox{
 private:
   std::array< std::array<int,2>, 3> orgBox; // original box size 
@@ -82,10 +81,12 @@ public:
 };
 
 
+// Represents density of one type of lipids  
 class DensityGrid {
 private:
   std::vector <std::vector<std::vector<float>>> densMap; // 3D array which records number of lipids in each cell over time
   std::unique_ptr <std::vector <unsigned int>> atoms; // List of atom ids   
+  float normFactor = 1; 
   int dim [3];
 public:
   // Consturctor
@@ -104,12 +105,15 @@ public:
       densMap[idx[2]][idx[1]][idx[0]] += 1;  
     }
   }
- 
-  void normalize(int div){
+
+  void reset(){
     for (int i = 0; i < dim[2]; i++)
       for (int j = 0; j < dim[1]; j++)
-        for (int k = 0; k < dim[0]; k++)
-          densMap[i][j][k] /= div; 
+        std::fill (densMap[i][j].begin(), densMap[i][j].end(), 0);
+  }
+ 
+  void normalize(int div){
+    normFactor = div;
   }
  
   friend std::ostream & operator<<(std::ostream & os, DensityGrid const & grid){
@@ -117,7 +121,7 @@ public:
     for (int i = 0; i < grid.dim [2]; i++){
       for (int j = 0; j < grid.dim[1]; j++){
         for (int k = 0; k < grid.dim[0]; k++)
-          buff << grid.densMap[i][j][k] << " ";              
+          buff << (grid.densMap[i][j][k] / grid.normFactor )<< " ";              
         buff << std::endl; 
       } 
     }    
@@ -127,6 +131,7 @@ public:
 };
 
 
+// Represents density of one type of protein  
 class ProtDensityGrid {
 private:
   std::vector <std::vector<std::vector<int>>> densMap; // 3D array which records number of lipids in each cell over time
